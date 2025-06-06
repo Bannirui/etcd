@@ -44,13 +44,15 @@ type commit struct {
 }
 
 // A key-value stream backed by raft
+// 集群中的一个节点
 type raftNode struct {
 	proposeC    <-chan string            // proposed messages (k,v)
 	confChangeC <-chan raftpb.ConfChange // proposed cluster config changes
 	commitC     chan<- *commit           // entries committed to log (k,v)
 	errorC      chan<- error             // errors from raft session
-
-	id          int      // client ID for raft session
+	// 节点在集群中的id标识
+	id int // client ID for raft session
+	// 集群中所有节点的配置 共识算法通信端口 ip:port
 	peers       []string // raft peer URLs
 	join        bool     // node is joining an existing cluster
 	waldir      string   // path to WAL directory
@@ -85,6 +87,9 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
+// @Param id 集群中节点标识
+// @Param peers 集群节点配置 ip:port 共识算法通信端口
+// @Param getSnapshot lambda方法 把kv中内存map全量json序列化
 func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error), proposeC <-chan string,
 	confChangeC <-chan raftpb.ConfChange,
 ) (<-chan *commit, <-chan error, <-chan *snap.Snapshotter) {
@@ -99,6 +104,7 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		id:          id,
 		peers:       peers,
 		join:        join,
+		// WAL技术是用来解决两阶段提交事务提交的通解 这个文件肯定是用来解决日志确认提交前的日志同步问题的
 		waldir:      fmt.Sprintf("raftexample-%d", id),
 		snapdir:     fmt.Sprintf("raftexample-%d-snap", id),
 		getSnapshot: getSnapshot,

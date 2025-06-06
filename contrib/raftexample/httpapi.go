@@ -104,6 +104,7 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func serveHTTPKVAPI(kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange, errorC <-chan error) {
 	srv := http.Server{
 		Addr: ":" + strconv.Itoa(port),
+		// httpKVAPI实现了接口Handler
 		Handler: &httpKVAPI{
 			store:       kv,
 			confChangeC: confChangeC,

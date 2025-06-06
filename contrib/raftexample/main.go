@@ -22,8 +22,11 @@ import (
 )
 
 func main() {
+	// 集群共识算法通信端口
 	cluster := flag.String("cluster", "http://127.0.0.1:9021", "comma separated cluster peers")
+	// 节点标识
 	id := flag.Int("id", 1, "node ID")
+	// 客户端端口
 	kvport := flag.Int("port", 9121, "key-value server port")
 	join := flag.Bool("join", false, "join an existing cluster")
 	flag.Parse()
@@ -35,6 +38,7 @@ func main() {
 
 	// raft provides a commit stream for the proposals from the http api
 	var kvs *kvstore
+	// 内存中map序列化json
 	getSnapshot := func() ([]byte, error) { return kvs.getSnapshot() }
 	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC)
 
