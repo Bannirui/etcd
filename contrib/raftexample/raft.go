@@ -50,7 +50,7 @@ type raftNode struct {
 	confChangeC <-chan raftpb.ConfChange // proposed cluster config changes
 	commitC     chan<- *commit           // entries committed to log (k,v)
 	errorC      chan<- error             // errors from raft session
-	// 节点在集群中的id标识
+	// 节点在集群中的id标识 1-based
 	id int // client ID for raft session
 	// 集群中所有节点的配置 共识算法通信端口 ip:port
 	peers       []string // raft peer URLs
@@ -90,6 +90,7 @@ var defaultSnapshotCount uint64 = 10000
 // @Param id 集群中节点标识
 // @Param peers 集群节点配置 ip:port 共识算法通信端口
 // @Param getSnapshot lambda方法 把kv中内存map全量json序列化
+// @Param proposeC channel 客户端提交信息后 raft node
 func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error), proposeC <-chan string,
 	confChangeC <-chan raftpb.ConfChange,
 ) (<-chan *commit, <-chan error, <-chan *snap.Snapshotter) {

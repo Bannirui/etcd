@@ -101,10 +101,11 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveHTTPKVAPI starts a key-value server with a GET/PUT API and listens.
+// @Param kv 键值对数据库组件 httpKVAPI组件组合了kv store 所以收到了客户端请求后就可以操作kv store进行读写
 func serveHTTPKVAPI(kv *kvstore, port int, confChangeC chan<- raftpb.ConfChange, errorC <-chan error) {
 	srv := http.Server{
 		Addr: ":" + strconv.Itoa(port),
-		// httpKVAPI实现了接口Handler
+		// httpKVAPI实现了接口Handler 有请求进来后httpKVAPI::ServeHTTP会被调用
 		Handler: &httpKVAPI{
 			store:       kv,
 			confChangeC: confChangeC,

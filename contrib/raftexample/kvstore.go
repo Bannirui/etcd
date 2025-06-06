@@ -64,6 +64,8 @@ func (s *kvstore) Lookup(key string) (string, bool) {
 	return v, ok
 }
 
+// @Param k 要存的键
+// @Param v 要存的值
 func (s *kvstore) Propose(k string, v string) {
 	var buf strings.Builder
 	if err := gob.NewEncoder(&buf).Encode(kv{k, v}); err != nil {
