@@ -49,5 +49,6 @@ func main() {
 	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
 
 	// the key-value http handler will propose updates to raft
+	// 开启服务器等待客户端请求
 	serveHTTPKVAPI(kvs, *kvport, confChangeC, errorC)
 }

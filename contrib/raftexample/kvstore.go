@@ -57,6 +57,10 @@ func newKVStore(snapshotter *snap.Snapshotter, proposeC chan<- string, commitC <
 	return s
 }
 
+// 查询数据库
+// @Param key 在数据库要查的键
+// @Return string 键对应的值
+// @Return bool 标识键在库中存不存在
 func (s *kvstore) Lookup(key string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
