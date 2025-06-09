@@ -46,6 +46,8 @@ func IsDirWriteable(dir string) error {
 
 // TouchDirAll is similar to os.MkdirAll. It creates directories with 0700 permission if any directory
 // does not exists. TouchDirAll also ensures the given directory is writable.
+// 创建目录 已经存在的目录看看有没有读/写/执行权限
+// @Param dir 目录路径
 func TouchDirAll(lg *zap.Logger, dir string) error {
 	verify.Assert(lg != nil, "nil log isn't allowed")
 	// If path is already a directory, MkdirAll does nothing and returns nil, so,

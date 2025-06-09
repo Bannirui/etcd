@@ -68,7 +68,9 @@ const (
 
 // Etcd contains a running etcd server and its listeners.
 type Etcd struct {
-	Peers   []*peerListener
+	// 集群节点间raft通信的TCP连接
+	Peers []*peerListener
+	// 集群节点作为数据库服务端开放给客户端的TCP连接
 	Clients []net.Listener
 	// a map of contexts for the servers that serves client requests.
 	sctxs            map[string]*serveCtx
@@ -98,6 +100,7 @@ type Etcd struct {
 	wg sync.WaitGroup
 }
 
+// raft集群节点一致性算法通信
 type peerListener struct {
 	net.Listener
 	serve func() error
@@ -139,6 +142,7 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		"configuring peer listeners",
 		zap.Strings("listen-peer-urls", e.cfg.getListenPeerURLs()),
 	)
+	// 初始化集群间通信TCP连接
 	if e.Peers, err = configurePeerListeners(cfg); err != nil {
 		return e, err
 	}
@@ -147,6 +151,7 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		"configuring client listeners",
 		zap.Strings("listen-client-urls", e.cfg.getListenClientURLs()),
 	)
+	// 初始化集群节点开放给客户端的TCP连接
 	if e.sctxs, err = configureClientListeners(cfg); err != nil {
 		return e, err
 	}
@@ -160,6 +165,7 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		token   string
 	)
 	memberInitialized := true
+	// wal目录default.etcd/member/wal
 	if !isMemberInitialized(cfg) {
 		memberInitialized = false
 		urlsmap, token, err = cfg.PeerURLsMapAndToken("etcd")
@@ -528,6 +534,7 @@ func (e *Etcd) Err() <-chan error {
 	return e.errc
 }
 
+// 根据配置初始化集群间通信TCP连接
 func configurePeerListeners(cfg *Config) (peers []*peerListener, err error) {
 	if err = updateCipherSuites(&cfg.PeerTLSInfo, cfg.CipherSuites); err != nil {
 		return nil, err
@@ -562,7 +569,7 @@ func configurePeerListeners(cfg *Config) (peers []*peerListener, err error) {
 			}
 		}
 	}()
-
+	// 根据集群节点通信地址配置初始化socket
 	for i, u := range cfg.ListenPeerUrls {
 		if u.Scheme == "http" {
 			if !cfg.PeerTLSInfo.Empty() {
@@ -573,6 +580,7 @@ func configurePeerListeners(cfg *Config) (peers []*peerListener, err error) {
 			}
 		}
 		peers[i] = &peerListener{close: func(context.Context) error { return nil }}
+		// 初始化TCP连接
 		peers[i].Listener, err = transport.NewListenerWithOpts(u.Host, u.Scheme,
 			transport.WithTLSInfo(&cfg.PeerTLSInfo),
 			transport.WithSocketOpts(&cfg.SocketOpts),
@@ -642,6 +650,7 @@ func (e *Etcd) servePeers() {
 	}
 }
 
+// @Return sctxs 缓存初始化好的服务端 key=ip:port val=对应的服务端 这个连接是开放给客户端请求数据存取的
 func configureClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err error) {
 	if err = updateCipherSuites(&cfg.ClientTLSInfo, cfg.CipherSuites); err != nil {
 		return nil, err
@@ -668,7 +677,7 @@ func configureClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err erro
 			return nil, fmt.Errorf("TLS key/cert (--cert-file, --key-file) must be provided for client url %s with HTTPS scheme", u.String())
 		}
 	}
-
+	// 每个节点正常情况下就开放一个端口给客户端连接就行 ip:port 比如localhost:2379 这个端口开放给客户端 将来自己是Leader进行存/取 自己是Follower就转发存/取
 	for _, u := range cfg.ListenClientUrls {
 		addr, secure, network := resolveURL(u)
 		sctx := sctxs[addr]
@@ -701,6 +710,7 @@ func configureClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err erro
 	}
 
 	for _, sctx := range sctxs {
+		// 初始化服务端连接
 		if sctx.l, err = transport.NewListenerWithOpts(sctx.addr, sctx.scheme,
 			transport.WithSocketOpts(&cfg.SocketOpts),
 			transport.WithSkipTLSInfoCheck(true),

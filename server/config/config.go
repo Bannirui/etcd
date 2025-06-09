@@ -46,9 +46,11 @@ type ServerConfig struct {
 
 	ClientURLs types.URLs
 	PeerURLs   types.URLs
-	DataDir    string
+	// 数据目录default.etcd
+	DataDir string
 	// DedicatedWALDir config will make the etcd to write the WAL to the WALDir
 	// rather than the dataDir/member/wal.
+	// wal目录default.etcd/member/wal
 	DedicatedWALDir string
 
 	SnapshotCount uint64
@@ -303,6 +305,7 @@ func (c *ServerConfig) advertiseMatchesCluster() error {
 
 func (c *ServerConfig) MemberDir() string { return datadir.ToMemberDir(c.DataDir) }
 
+// wal目录default.etcd/member/wal
 func (c *ServerConfig) WALDir() string {
 	if c.DedicatedWALDir != "" {
 		return c.DedicatedWALDir
@@ -310,6 +313,7 @@ func (c *ServerConfig) WALDir() string {
 	return datadir.ToWALDir(c.DataDir)
 }
 
+// default.etcd/member/sanp
 func (c *ServerConfig) SnapDir() string { return filepath.Join(c.MemberDir(), "snap") }
 
 func (c *ServerConfig) ShouldDiscover() bool {
@@ -353,6 +357,7 @@ func (c *ServerConfig) BootstrapTimeoutEffective() time.Duration {
 	return time.Second
 }
 
+// default.etcd/member/db
 func (c *ServerConfig) BackendPath() string { return datadir.ToBackendFileName(c.DataDir) }
 
 func (c *ServerConfig) MaxRequestBytesWithOverhead() uint {

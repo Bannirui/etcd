@@ -23,6 +23,7 @@ const (
 	backendFileSegment = "db"
 )
 
+// default.etcd/member/db
 func ToBackendFileName(dataDir string) string {
 	return filepath.Join(ToSnapDir(dataDir), backendFileSegment)
 }

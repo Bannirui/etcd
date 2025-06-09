@@ -20,9 +20,11 @@ import (
 	"go.etcd.io/etcd/server/v3/storage/wal"
 )
 
+// 看看wal目录有没有 没有就创建默认的目录default.etcd/member/wal
 func isMemberInitialized(cfg *Config) bool {
 	walDir := cfg.WalDir
 	if walDir == "" {
+		// 启动的时候没有指定wal目录就用默认的路径default.etcd/member/wal
 		walDir = filepath.Join(cfg.Dir, "member", "wal")
 	}
 	return wal.Exist(walDir)

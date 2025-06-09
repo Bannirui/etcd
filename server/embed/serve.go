@@ -52,7 +52,8 @@ import (
 
 type serveCtx struct {
 	lg *zap.Logger
-	l  net.Listener
+	// 服务端的连接 开放给客户端
+	l net.Listener
 
 	scheme   string
 	addr     string

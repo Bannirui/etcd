@@ -60,11 +60,11 @@ func bootstrap(cfg config.ServerConfig) (b *bootstrappedServer, err error) {
 			zap.String("recommended-request-size", recommendedMaxRequestBytesString),
 		)
 	}
-
+	// 创建目录default.etcd
 	if terr := fileutil.TouchDirAll(cfg.Logger, cfg.DataDir); terr != nil {
 		return nil, fmt.Errorf("cannot access data directory: %w", terr)
 	}
-
+	// 创建目录default.etcd/member
 	if terr := fileutil.TouchDirAll(cfg.Logger, cfg.MemberDir()); terr != nil {
 		return nil, fmt.Errorf("cannot access member directory: %w", terr)
 	}
@@ -73,7 +73,7 @@ func bootstrap(cfg config.ServerConfig) (b *bootstrappedServer, err error) {
 	if err != nil {
 		return nil, err
 	}
-
+	// 看看default.etcd/member/wal存不存在
 	haveWAL := wal.Exist(cfg.WALDir())
 	st := v2store.New(StoreClusterPrefix, StoreKeysPrefix)
 	backend, err := bootstrapBackend(cfg, haveWAL, st, ss)
@@ -178,6 +178,7 @@ func bootstrapStorage(cfg config.ServerConfig, st v2store.Store, be *bootstrappe
 }
 
 func bootstrapSnapshot(cfg config.ServerConfig) *snap.Snapshotter {
+	// default.etcd/member/snap
 	if err := fileutil.TouchDirAll(cfg.Logger, cfg.SnapDir()); err != nil {
 		cfg.Logger.Fatal(
 			"failed to create snapshot directory",
@@ -186,6 +187,7 @@ func bootstrapSnapshot(cfg config.ServerConfig) *snap.Snapshotter {
 		)
 	}
 
+	// 删除default.etcd/member/snap/路径下tmp文件
 	if err := fileutil.RemoveMatchFile(cfg.Logger, cfg.SnapDir(), func(fileName string) bool {
 		return strings.HasPrefix(fileName, "tmp")
 	}); err != nil {
@@ -198,7 +200,10 @@ func bootstrapSnapshot(cfg config.ServerConfig) *snap.Snapshotter {
 	return snap.New(cfg.Logger, cfg.SnapDir())
 }
 
+// 用snap快照文件对db层数据进行恢复
+// @Param haveWAL 启动raft服务器之前已经存在了wal目录default.etcd/member/wal
 func bootstrapBackend(cfg config.ServerConfig, haveWAL bool, st v2store.Store, ss *snap.Snapshotter) (backend *bootstrappedBackend, err error) {
+	// default.etcd/member/db
 	beExist := fileutil.Exist(cfg.BackendPath())
 	ci := cindex.NewConsistentIndex(nil)
 	beHooks := serverstorage.NewBackendHooks(cfg.Logger, ci)
@@ -221,6 +226,7 @@ func bootstrapBackend(cfg config.ServerConfig, haveWAL bool, st v2store.Store, s
 	// TODO(serathius): Implement schema setup in fresh storage
 	var snapshot *raftpb.Snapshot
 	if haveWAL {
+		// db层数据用snap快照文件恢复
 		snapshot, be, err = recoverSnapshot(cfg, st, be, beExist, beHooks, ci, ss)
 		if err != nil {
 			return nil, err
@@ -380,20 +386,25 @@ func bootstrapClusterWithWAL(cfg config.ServerConfig, meta *snapshotMetadata) (*
 	}, nil
 }
 
+// 恢复数据 包括通过
+// @Param beExist 标识default.etcd/member/db目录存在
 func recoverSnapshot(cfg config.ServerConfig, st v2store.Store, be backend.Backend, beExist bool, beHooks *serverstorage.BackendHooks, ci cindex.ConsistentIndexer, ss *snap.Snapshotter) (*raftpb.Snapshot, backend.Backend, error) {
 	// Find a snapshot to start/restart a raft node
+	// default.etcd/member/wal目录下wal文件反序列化出来
 	walSnaps, err := wal.ValidSnapshotEntries(cfg.Logger, cfg.WALDir())
 	if err != nil {
 		return nil, be, err
 	}
 	// snapshot files can be orphaned if etcd crashes after writing them but before writing the corresponding
 	// bwal log entries
+	// 找到wal认可的snap 正常情况下肯定都是最新的那个快照文件 用这个snap作为恢复数据的依据
 	snapshot, err := ss.LoadNewestAvailable(walSnaps)
 	if err != nil && !errors.Is(err, snap.ErrNoSnapshot) {
 		return nil, be, err
 	}
 
 	if snapshot != nil {
+		// 用snap快照恢复数据
 		if err = st.Recovery(snapshot.Data); err != nil {
 			cfg.Logger.Panic("failed to recover from snapshot", zap.Error(err))
 		}

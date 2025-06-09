@@ -69,11 +69,16 @@ func isValidSeq(lg *zap.Logger, names []string) bool {
 	return true
 }
 
+// 找到wal目录下所有的wal日志文件
+// @Param dirpath wal目录default.etcd/member/wal
+// @Return wal文件名
 func readWALNames(lg *zap.Logger, dirpath string) ([]string, error) {
+	// default.etcd/member/wal目录下的文件
 	names, err := fileutil.ReadDir(dirpath)
 	if err != nil {
 		return nil, fmt.Errorf("[readWALNames] fileutil.ReadDir failed: %w", err)
 	}
+	// 后缀是wal的文件
 	wnames := checkWALNames(lg, names)
 	if len(wnames) == 0 {
 		return nil, ErrFileNotFound
@@ -81,9 +86,12 @@ func readWALNames(lg *zap.Logger, dirpath string) ([]string, error) {
 	return wnames, nil
 }
 
+// 根据文件名的后缀筛选出wal文件
+// @Return 后缀是wal的文件
 func checkWALNames(lg *zap.Logger, names []string) []string {
 	wnames := make([]string, 0)
 	for _, name := range names {
+		// 确保wal目录default.etcd/member/wal下的文件后缀都是wal 也就是保证都是wal日志文件
 		if _, _, err := parseWALName(name); err != nil {
 			// don't complain about left over tmp files
 			if !strings.HasSuffix(name, ".tmp") {
@@ -99,10 +107,15 @@ func checkWALNames(lg *zap.Logger, names []string) []string {
 	return wnames
 }
 
+// wal日志文件名解析出index wal日志的后缀的wal 文件名前半部分表示term 后半部分表示index x-x.wal
+// @Return seq 文件名的前半部分表示term
+// @Return index 文件名的后半部分表示index
 func parseWALName(str string) (seq, index uint64, err error) {
+	// wal日志
 	if !strings.HasSuffix(str, ".wal") {
 		return 0, 0, errBadWALName
 	}
+	// wal日志的文件名
 	_, err = fmt.Sscanf(str, "%016x-%016x.wal", &seq, &index)
 	return seq, index, err
 }

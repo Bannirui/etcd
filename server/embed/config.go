@@ -159,8 +159,10 @@ func init() {
 // Config holds the arguments for configuring an etcd server.
 type Config struct {
 	Name string `json:"name"`
-	Dir  string `json:"data-dir"`
+	// 数据目录 default.etcd
+	Dir string `json:"data-dir"`
 	//revive:disable-next-line:var-naming
+	// wal日志目录 没有单独指定 默认放在数据目录下面 default.etcd/member/wal
 	WalDir string `json:"wal-dir"`
 
 	// SnapshotCount is the number of committed transactions that trigger a snapshot to disk.
@@ -232,6 +234,8 @@ type Config struct {
 	MaxConcurrentStreams uint32 `json:"max-concurrent-streams"`
 
 	//revive:disable:var-naming
+	// ListenPeerUrls 集群节点的raft通信配置 用来进行Append Entries一致性算法RPC ip:port
+	// ListenClientUrls 集群每个节点还要开放给客户端进行get/put通信 ip:port
 	ListenPeerUrls, ListenClientUrls, ListenClientHttpUrls []url.URL
 	AdvertisePeerUrls, AdvertiseClientUrls                 []url.URL
 	//revive:enable:var-naming

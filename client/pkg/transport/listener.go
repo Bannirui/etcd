@@ -49,6 +49,8 @@ func NewListenerWithOpts(addr, scheme string, opts ...ListenerOption) (net.Liste
 	return newListener(addr, scheme, opts...)
 }
 
+// @Param addr 服务端地址 ip:port
+// @Return TCP连接 etcd集群间通信用的tcp协议
 func newListener(addr, scheme string, opts ...ListenerOption) (net.Listener, error) {
 	if scheme == "unix" || scheme == "unixs" {
 		// unix sockets via unix://laddr

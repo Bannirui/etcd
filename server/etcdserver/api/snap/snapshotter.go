@@ -51,7 +51,8 @@ var (
 )
 
 type Snapshotter struct {
-	lg  *zap.Logger
+	lg *zap.Logger
+	// 快照目录default.etcd/member/snap
 	dir string
 }
 
@@ -60,7 +61,8 @@ func New(lg *zap.Logger, dir string) *Snapshotter {
 		lg = zap.NewNop()
 	}
 	return &Snapshotter{
-		lg:  lg,
+		lg: lg,
+		// default.etcd/member/snap
 		dir: dir,
 	}
 }
@@ -110,6 +112,11 @@ func (s *Snapshotter) Load() (*raftpb.Snapshot, error) {
 }
 
 // LoadNewestAvailable loads the newest snapshot available that is in walSnaps.
+// 为什么设计的这么复杂 不直接使用最新的snap文件作为恢复数据的依据呢 而是要跟wal进行比较
+// 根本原因是要让wal认可snap 也就是保证恢复的数据一定是在wal中的
+// 防止孤儿快照 也就是数据在snap中却不在wal中
+// @Param walSnaps default.etcd/member/wal/目录下的wal文件
+// @Return snap文件 raft服务器启动的时候用哪个snap文件作为数据恢复的依据
 func (s *Snapshotter) LoadNewestAvailable(walSnaps []walpb.Snapshot) (*raftpb.Snapshot, error) {
 	return s.loadMatching(func(snapshot *raftpb.Snapshot) bool {
 		m := snapshot.Metadata
@@ -123,13 +130,16 @@ func (s *Snapshotter) LoadNewestAvailable(walSnaps []walpb.Snapshot) (*raftpb.Sn
 }
 
 // loadMatching returns the newest snapshot where matchFn returns true.
+// @Param matchFn 用来筛选wal
 func (s *Snapshotter) loadMatching(matchFn func(*raftpb.Snapshot) bool) (*raftpb.Snapshot, error) {
+	// default.etcd/member/snap目录下所有的snap文件名 这个地方的文件名是按照快照时间降序的 为了下面先轮询到新快照文件设计的
 	names, err := s.snapNames()
 	if err != nil {
 		return nil, err
 	}
 	var snap *raftpb.Snapshot
 	for _, name := range names {
+		// 从最新的快照snap中找到跟wal文件日志term和index的吻合的那个snap 也就是上一次快照的分水岭
 		if snap, err = s.loadSnap(name); err == nil && matchFn(snap) {
 			return snap, nil
 		}
@@ -137,8 +147,13 @@ func (s *Snapshotter) loadMatching(matchFn func(*raftpb.Snapshot) bool) (*raftpb
 	return nil, ErrNoSnapshot
 }
 
+// snap目录default.etcd/member/snap拼接文件名成snap文件的路径 读出来反序列化
+// @Param name snap文件名
+// @Return 反序列化出来的snap文件
 func (s *Snapshotter) loadSnap(name string) (*raftpb.Snapshot, error) {
+	// 目录+文件名拼接snap文件路径
 	fpath := filepath.Join(s.dir, name)
+	// 从snap文件中反序列化
 	snap, err := Read(s.lg, fpath)
 	if err != nil {
 		brokenPath := fpath + ".broken"
@@ -153,8 +168,11 @@ func (s *Snapshotter) loadSnap(name string) (*raftpb.Snapshot, error) {
 }
 
 // Read reads the snapshot named by snapname and returns the snapshot.
+// @Paran snapname snap文件路径
+// @Return 反序列化出snap文件内容
 func Read(lg *zap.Logger, snapname string) (*raftpb.Snapshot, error) {
 	verify.Assert(lg != nil, "the logger should not be nil")
+	// 读文件
 	b, err := os.ReadFile(snapname)
 	if err != nil {
 		lg.Warn("failed to read a snap file", zap.String("path", snapname), zap.Error(err))
@@ -167,6 +185,7 @@ func Read(lg *zap.Logger, snapname string) (*raftpb.Snapshot, error) {
 	}
 
 	var serializedSnap snappb.Snapshot
+	// snap文件反序列化
 	if err = serializedSnap.Unmarshal(b); err != nil {
 		lg.Warn("failed to unmarshal snappb.Snapshot", zap.String("path", snapname), zap.Error(err))
 		return nil, err
@@ -186,7 +205,7 @@ func Read(lg *zap.Logger, snapname string) (*raftpb.Snapshot, error) {
 		)
 		return nil, ErrCRCMismatch
 	}
-
+	// 反序列化出来snap文件内容
 	var snap raftpb.Snapshot
 	if err = snap.Unmarshal(serializedSnap.Data); err != nil {
 		lg.Warn("failed to unmarshal raftpb.Snapshot", zap.String("path", snapname), zap.Error(err))
@@ -197,20 +216,26 @@ func Read(lg *zap.Logger, snapname string) (*raftpb.Snapshot, error) {
 
 // snapNames returns the filename of the snapshots in logical time order (from newest to oldest).
 // If there is no available snapshots, an ErrNoSnapshot will be returned.
+// default.etcd/member/snap目录下所的有snap文件名
+// @Return snap文件名中有时间戳 返回出去的文件名是按照时间戳降序的 也就是先新快照
 func (s *Snapshotter) snapNames() ([]string, error) {
+	// snap目录default.etcd/member/snap
 	dir, err := os.Open(s.dir)
 	if err != nil {
 		return nil, err
 	}
 	defer dir.Close()
+	// 把snap目录下所有文件名读出来
 	names, err := dir.Readdirnames(-1)
 	if err != nil {
 		return nil, err
 	}
+	// tmp文件不要
 	filenames, err := s.cleanupSnapdir(names)
 	if err != nil {
 		return nil, err
 	}
+	// 只要.snap后缀的文件
 	snaps := s.checkSuffix(filenames)
 	if len(snaps) == 0 {
 		return nil, ErrNoSnapshot

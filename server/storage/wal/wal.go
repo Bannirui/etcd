@@ -414,11 +414,16 @@ func selectWALFiles(lg *zap.Logger, dirpath string, snap walpb.Snapshot) ([]stri
 	return names, nameIndex, nil
 }
 
+// @Param dirpath 目录
+// @Param names 文件名
+// @Param nameIndex 0-based 处理names[nameIndex...]哪些文件
+// @Param write 读写标识 为了文件安全读写互斥 所以读写是分离的
 func openWALFiles(lg *zap.Logger, dirpath string, names []string, nameIndex int, write bool) ([]fileutil.FileReader, []*fileutil.LockedFile, func() error, error) {
 	rcs := make([]io.ReadCloser, 0)
 	rs := make([]fileutil.FileReader, 0)
 	ls := make([]*fileutil.LockedFile, 0)
 	for _, name := range names[nameIndex:] {
+		// 拼接文件路径
 		p := filepath.Join(dirpath, name)
 		var f *os.File
 		if write {
@@ -592,12 +597,15 @@ func (w *WAL) ReadAll() (metadata []byte, state raftpb.HardState, ents []raftpb.
 
 // ValidSnapshotEntries returns all the valid snapshot entries in the wal logs in the given directory.
 // Snapshot entries are valid if their index is less than or equal to the most recent committed hardstate.
+// @Param walDir wal目录default.etcd/member/wal
+// @Return 解析wal目录下所有wal文件 每个wal文件内容都反序列化出来放到slice里面
 func ValidSnapshotEntries(lg *zap.Logger, walDir string) ([]walpb.Snapshot, error) {
 	var snaps []walpb.Snapshot
 	var state raftpb.HardState
 	var err error
 
 	rec := &walpb.Record{}
+	// 拿到wal目录下所有的wal日志文件名
 	names, err := readWALNames(lg, walDir)
 	if err != nil {
 		return nil, err
@@ -650,6 +658,7 @@ func ValidSnapshotEntries(lg *zap.Logger, walDir string) ([]walpb.Snapshot, erro
 			n++
 		}
 	}
+	// 切片的修理 切片数据结构用的是数据 在上面append的过程中可能触发了slice的自动扩容 这个地方防止以后对数据中数据污染 直接现在缩容 [0...n-1]这刚刚好n个元素
 	snaps = snaps[:n:n]
 	return snaps, nil
 }

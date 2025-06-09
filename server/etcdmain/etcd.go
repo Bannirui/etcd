@@ -119,6 +119,7 @@ func startEtcdOrProxyV2(args []string) {
 			)
 		}
 	} else {
+		// 数据目录不存在
 		lg.Info(
 			"Initialize and start etcd server",
 			zap.String("data-dir", cfg.ec.Dir),
@@ -192,6 +193,9 @@ func startEtcd(cfg *embed.Config) (<-chan struct{}, <-chan error, error) {
 
 // identifyDataDirOrDie returns the type of the data dir.
 // Dies if the datadir is invalid.
+// 节点启动前看看数据目录是不是存在
+// @Param dir default.etcd目录 这个目录下放着各个节点的wal和snapshot
+// @Return dirEmpty-数据目录不存在
 func identifyDataDirOrDie(lg *zap.Logger, dir string) dirType {
 	names, err := fileutil.ReadDir(dir)
 	if err != nil {
