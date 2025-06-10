@@ -50,6 +50,7 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
+// 启动snap组件和db组件
 func bootstrap(cfg config.ServerConfig) (b *bootstrappedServer, err error) {
 	if cfg.MaxRequestBytes > recommendedMaxRequestBytes {
 		cfg.Logger.Warn(
@@ -68,6 +69,7 @@ func bootstrap(cfg config.ServerConfig) (b *bootstrappedServer, err error) {
 	if terr := fileutil.TouchDirAll(cfg.Logger, cfg.MemberDir()); terr != nil {
 		return nil, fmt.Errorf("cannot access member directory: %w", terr)
 	}
+	// 启动快照组件
 	ss := bootstrapSnapshot(cfg)
 	prt, err := rafthttp.NewRoundTripper(cfg.PeerTLSInfo, cfg.PeerDialTimeout())
 	if err != nil {
@@ -76,6 +78,7 @@ func bootstrap(cfg config.ServerConfig) (b *bootstrappedServer, err error) {
 	// 看看default.etcd/member/wal存不存在
 	haveWAL := wal.Exist(cfg.WALDir())
 	st := v2store.New(StoreClusterPrefix, StoreKeysPrefix)
+	// 启动db层 尝试用snap快照恢复db层数据
 	backend, err := bootstrapBackend(cfg, haveWAL, st, ss)
 	if err != nil {
 		return nil, err
@@ -200,7 +203,7 @@ func bootstrapSnapshot(cfg config.ServerConfig) *snap.Snapshotter {
 	return snap.New(cfg.Logger, cfg.SnapDir())
 }
 
-// 用snap快照文件对db层数据进行恢复
+// 启动db层 用snap快照文件对db层数据进行恢复
 // @Param haveWAL 启动raft服务器之前已经存在了wal目录default.etcd/member/wal
 func bootstrapBackend(cfg config.ServerConfig, haveWAL bool, st v2store.Store, ss *snap.Snapshotter) (backend *bootstrappedBackend, err error) {
 	// default.etcd/member/db

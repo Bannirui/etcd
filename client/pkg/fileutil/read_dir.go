@@ -57,6 +57,7 @@ func ReadDir(d string, opts ...ReadDirOption) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// wal文件命名是seq-index.wal 这边字典序排序可以保证拿到的wal文件名是按照seq升序的 这也是为啥wal命名规则的原因
 	sort.Strings(names)
 
 	if op.ext != "" {

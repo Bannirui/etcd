@@ -87,6 +87,8 @@ func CreateDirAll(lg *zap.Logger, dir string) error {
 }
 
 // Exist returns true if a file or directory exists.
+// 判断路径是不是存在 可以是目录可以是文件
+// @Param name 路径名
 func Exist(name string) bool {
 	_, err := os.Stat(name)
 	return err == nil

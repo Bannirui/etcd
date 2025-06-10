@@ -69,6 +69,7 @@ var xxx_messageInfo_Record proto.InternalMessageInfo
 
 // Keep in sync with raftpb.SnapshotMetadata.
 type Snapshot struct {
+	// snap快照的index 在数据恢复时候 这个字段表示用snap只能帮助恢复数据到index 在index之后的数据就需要用wal文件来回放了
 	Index uint64 `protobuf:"varint,1,opt,name=index" json:"index"`
 	Term  uint64 `protobuf:"varint,2,opt,name=term" json:"term"`
 	// Field populated since >=etcd-3.5.0.

@@ -50,6 +50,7 @@ var (
 	}
 )
 
+// snap快照管理器
 type Snapshotter struct {
 	lg *zap.Logger
 	// 快照目录default.etcd/member/snap
@@ -115,7 +116,7 @@ func (s *Snapshotter) Load() (*raftpb.Snapshot, error) {
 // 为什么设计的这么复杂 不直接使用最新的snap文件作为恢复数据的依据呢 而是要跟wal进行比较
 // 根本原因是要让wal认可snap 也就是保证恢复的数据一定是在wal中的
 // 防止孤儿快照 也就是数据在snap中却不在wal中
-// @Param walSnaps default.etcd/member/wal/目录下的wal文件
+// @Param walSnaps default.etcd/member/wal/目录下的wal文件反序列化出来的
 // @Return snap文件 raft服务器启动的时候用哪个snap文件作为数据恢复的依据
 func (s *Snapshotter) LoadNewestAvailable(walSnaps []walpb.Snapshot) (*raftpb.Snapshot, error) {
 	return s.loadMatching(func(snapshot *raftpb.Snapshot) bool {

@@ -69,9 +69,11 @@ var (
 // A newly created WAL is in append mode, and ready for appending records.
 // A just opened WAL is in read mode, and ready for reading records.
 // The WAL will be ready for appending after reading out all the previous records.
+// wal管理器
 type WAL struct {
 	lg *zap.Logger
 
+	// wal目录
 	dir string // the living directory of the underlay files
 
 	// dirFile is a fd for the wal directory for syncing on Rename
@@ -81,6 +83,7 @@ type WAL struct {
 	state    raftpb.HardState // hardstate recorded at the head of WAL
 
 	start     walpb.Snapshot // snapshot to start reading
+	// 从wal文件读出内容后 用来解码
 	decoder   Decoder        // decoder to Decode records
 	readClose func() error   // closer for Decode reader
 
@@ -97,6 +100,12 @@ type WAL struct {
 // Create creates a WAL ready for appending records. The given metadata is
 // recorded at the head of each WAL file, and can be retrieved with ReadAll
 // after the file is Open.
+// 初始化wal管理器 逻辑太绕了
+// 先创建wal的临时目录->写wal文件->删除wal目录->wal临时目录改名成wal目录
+// 这么做目的是保证原子性 防止在创建wal过程中宕机产生中间态被污染的文件
+// @Param dirpath wal目录
+// @Param metadata wal文件头的元数据
+// @Return wal管理器
 func Create(lg *zap.Logger, dirpath string, metadata []byte) (*WAL, error) {
 	if Exist(dirpath) {
 		return nil, os.ErrExist
@@ -107,6 +116,7 @@ func Create(lg *zap.Logger, dirpath string, metadata []byte) (*WAL, error) {
 	}
 
 	// keep temporary wal directory so WAL initialization appears atomic
+	// 新建wal临时目录 xxx.tmp目录 空目录 目录下没有文件
 	tmpdirpath := filepath.Clean(dirpath) + ".tmp"
 	if fileutil.Exist(tmpdirpath) {
 		if err := os.RemoveAll(tmpdirpath); err != nil {
@@ -124,7 +134,7 @@ func Create(lg *zap.Logger, dirpath string, metadata []byte) (*WAL, error) {
 		)
 		return nil, err
 	}
-
+	// 临时wal目录建个wal文件 0-0.wal
 	p := filepath.Join(tmpdirpath, walName(0, 0))
 	f, err := createNewWALFile[*fileutil.LockedFile](p, false)
 	if err != nil {
@@ -169,6 +179,7 @@ func Create(lg *zap.Logger, dirpath string, metadata []byte) (*WAL, error) {
 	if err = w.encoder.encode(&walpb.Record{Type: MetadataType, Data: metadata}); err != nil {
 		return nil, err
 	}
+	//
 	if err = w.SaveSnapshot(walpb.Snapshot{}); err != nil {
 		return nil, err
 	}
@@ -237,6 +248,8 @@ func Create(lg *zap.Logger, dirpath string, metadata []byte) (*WAL, error) {
 // To create a locked file, use *fileutil.LockedFile type parameter.
 // To create a standard file, use *os.File type parameter.
 // If forceNew is true, the file will be truncated if it already exists.
+// 新建wal文件
+// @Param path wal文件路径
 func createNewWALFile[T *os.File | *fileutil.LockedFile](path string, forceNew bool) (T, error) {
 	flag := os.O_WRONLY | os.O_CREATE
 	if forceNew {
@@ -286,7 +299,10 @@ func (w *WAL) cleanupWAL(lg *zap.Logger) {
 	}
 }
 
+// 删除wal目录 然后wal临时目录改名成wal目录
+// @Param tmpdirpath wal.tmp目录
 func (w *WAL) renameWAL(tmpdirpath string) (*WAL, error) {
+	// 删除wal目录
 	if err := os.RemoveAll(w.dir); err != nil {
 		return nil, err
 	}
@@ -296,6 +312,7 @@ func (w *WAL) renameWAL(tmpdirpath string) (*WAL, error) {
 	// happening. The fds are set up as close-on-exec by the Go runtime,
 	// but there is a window between the fork and the exec where another
 	// process holds the lock.
+	// wal临时目录改名成正式wal目录
 	if err := os.Rename(tmpdirpath, w.dir); err != nil {
 		var linkErr *os.LinkError
 		if errors.As(err, &linkErr) {
@@ -358,15 +375,19 @@ func OpenForRead(lg *zap.Logger, dirpath string, snap walpb.Snapshot) (*WAL, err
 	return openAtIndex(lg, dirpath, snap, false)
 }
 
+// 数据恢复 找到了snap快照 snap能恢复的数据只能到[...snap#Index] 在snap#Index之后的数据要靠wal文件回放 找到这些wal文件
+// 但是文件里面记录可能找多了 也就是回放的时候可能有的记录已经通过snap恢复了 所以要判断一下
+// @Param snap 已经找到用来数据恢复的snap
 func openAtIndex(lg *zap.Logger, dirpath string, snap walpb.Snapshot, write bool) (*WAL, error) {
 	if lg == nil {
 		lg = zap.NewNop()
 	}
+	// names[nameIndex...]这些wal文件是用来数据恢复的
 	names, nameIndex, err := selectWALFiles(lg, dirpath, snap)
 	if err != nil {
 		return nil, fmt.Errorf("[openAtIndex] selectWALFiles failed: %w", err)
 	}
-
+	// 把用来恢复数据的所有wal文件都读出来
 	rs, ls, closer, err := openWALFiles(lg, dirpath, names, nameIndex, write)
 	if err != nil {
 		return nil, fmt.Errorf("[openAtIndex] openWALFiles failed: %w", err)
@@ -396,12 +417,19 @@ func openAtIndex(lg *zap.Logger, dirpath string, snap walpb.Snapshot, write bool
 	return w, nil
 }
 
+// 找到用来数据恢复的wal文件是哪些 数据恢复用到的是snap和wal
+// 找到snap后 需要根据snap的index找到需要用哪些wal文件配合
+// @Param dirpath wal目录
+// @Param snap 数据恢复用的快照文件
+// @Return names 所有的wal日志文件名 按照seq升序排序的
+// @Return nameIndex snap的index对应的是哪个wal文件 恢复数据用的wal文件是哪些[nameIndex...]
 func selectWALFiles(lg *zap.Logger, dirpath string, snap walpb.Snapshot) ([]string, int, error) {
+	// wal目录下所有的wal文件名 已经按照seq升序了
 	names, err := readWALNames(lg, dirpath)
 	if err != nil {
 		return nil, -1, fmt.Errorf("readWALNames failed: %w", err)
 	}
-
+	// 在有序的wal文件名中根据index规则快速定位到要找的index在哪个wal文件 也就说恢复数据要用的wal文件就是[nameIndex...]
 	nameIndex, ok := searchIndex(lg, names, snap.Index)
 	if !ok {
 		return nil, -1, fmt.Errorf("wal: file not found which matches the snapshot index '%d'", snap.Index)

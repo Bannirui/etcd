@@ -39,6 +39,7 @@ import (
 )
 
 type commit struct {
+	// Entry日志
 	data       []string
 	applyDoneC chan<- struct{}
 }
@@ -46,17 +47,21 @@ type commit struct {
 // A key-value stream backed by raft
 // 集群中的一个节点
 type raftNode struct {
+	// 要同步的日志 KVStore拿到httpKVAPI组件的put数据后加工成键值对发布到这个通道 raftNode去订阅
 	proposeC    <-chan string            // proposed messages (k,v)
 	confChangeC <-chan raftpb.ConfChange // proposed cluster config changes
-	commitC     chan<- *commit           // entries committed to log (k,v)
-	errorC      chan<- error             // errors from raft session
+	// 确认提交的日志 KVStore组件去订阅
+	commitC chan<- *commit // entries committed to log (k,v)
+	errorC  chan<- error   // errors from raft session
 	// 节点在集群中的id标识 1-based
 	id int // client ID for raft session
 	// 集群中所有节点的配置 共识算法通信端口 ip:port
-	peers       []string // raft peer URLs
-	join        bool     // node is joining an existing cluster
-	waldir      string   // path to WAL directory
-	snapdir     string   // path to snapshot directory
+	peers []string // raft peer URLs
+	join  bool     // node is joining an existing cluster
+	// wal目录
+	waldir string // path to WAL directory
+	// snap目录
+	snapdir     string // path to snapshot directory
 	getSnapshot func() ([]byte, error)
 
 	confState     raftpb.ConfState
@@ -66,6 +71,7 @@ type raftNode struct {
 	// raft backing for the commit/error channel
 	node        raft.Node
 	raftStorage *raft.MemoryStorage
+	// 持有的wal组件
 	wal         *wal.WAL
 
 	snapshotter      *snap.Snapshotter
@@ -87,6 +93,7 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
+// 初始化raftNode并启动raft
 // @Param id 集群中节点标识
 // @Param peers 集群节点配置 ip:port 共识算法通信端口
 // @Param getSnapshot lambda方法 把kv中内存map全量json序列化
@@ -106,7 +113,9 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		peers:       peers,
 		join:        join,
 		// WAL技术是用来解决两阶段提交事务提交的通解 这个文件肯定是用来解决日志确认提交前的日志同步问题的
-		waldir:      fmt.Sprintf("raftexample-%d", id),
+		// wal目录
+		waldir: fmt.Sprintf("raftexample-%d", id),
+		// snap目录
 		snapdir:     fmt.Sprintf("raftexample-%d-snap", id),
 		getSnapshot: getSnapshot,
 		snapCount:   defaultSnapshotCount,
@@ -119,6 +128,7 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		snapshotterReady: make(chan *snap.Snapshotter, 1),
 		// rest of structure populated after WAL replay
 	}
+	// 启动raft
 	go rc.startRaft()
 	return commitC, errorC, rc.snapshotterReady
 }
@@ -208,28 +218,38 @@ func (rc *raftNode) publishEntries(ents []raftpb.Entry) (<-chan struct{}, bool) 
 	return applyDoneC, true
 }
 
+// @Return 用来恢复数据的snap快照
+//         没有现成的snapshot文件就初始化一个逻辑snap term=0 index=0
 func (rc *raftNode) loadSnapshot() *raftpb.Snapshot {
+	// 看看在wal目录下有没有wal文件
 	if wal.Exist(rc.waldir) {
+		// 从wal日志文件反序列化出来
 		walSnaps, err := wal.ValidSnapshotEntries(rc.logger, rc.waldir)
 		if err != nil {
 			log.Fatalf("raftexample: error listing snapshots (%v)", err)
 		}
+		// 找到用来恢复数据的快照
+		// 这个地方的另一层语义是 如果没有wal目录 必然没有snap 确实 皮之不存毛之焉附
 		snapshot, err := rc.snapshotter.LoadNewestAvailable(walSnaps)
 		if err != nil && !errors.Is(err, snap.ErrNoSnapshot) {
 			log.Fatalf("raftexample: error loading snapshot (%v)", err)
 		}
 		return snapshot
 	}
+	// 没有现成的snapshot文件就初始化 term=0 index=0
 	return &raftpb.Snapshot{}
 }
 
 // openWAL returns a WAL ready for reading.
+// @Param snapshot 从snap目录下找到的可以用来恢复数据的snap快照
+//	               可能没找到现成的snap快照文件 那么这个地方term=0 index=0
 func (rc *raftNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
+	// 没有wal目录就创建
 	if !wal.Exist(rc.waldir) {
 		if err := os.Mkdir(rc.waldir, 0o750); err != nil {
 			log.Fatalf("raftexample: cannot create dir for wal (%v)", err)
 		}
-
+		// 新建wal管理器 创建wal目录和wal文件
 		w, err := wal.Create(zap.NewExample(), rc.waldir, nil)
 		if err != nil {
 			log.Fatalf("raftexample: create wal error (%v)", err)
@@ -251,9 +271,14 @@ func (rc *raftNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 }
 
 // replayWAL replays WAL entries into the raft instance.
+// 启动时候尝试恢复内存数据库 包含了两层语义
+// 1 用snap快照
+// 2 用wal查漏补缺
 func (rc *raftNode) replayWAL() *wal.WAL {
 	log.Printf("replaying WAL of member %d", rc.id)
+	// 找到用来恢复数据的snap快照 找到的为个snap能恢复的数据是[0...snap#Index] 剩下的数据还得靠wal文件继续回放
 	snapshot := rc.loadSnapshot()
+	// 找到用来恢复数据的wal文件 wal内容都放在了raftNode#WAL#decoder
 	w := rc.openWAL(snapshot)
 	_, st, ents, err := w.ReadAll()
 	if err != nil {
@@ -261,11 +286,13 @@ func (rc *raftNode) replayWAL() *wal.WAL {
 	}
 	rc.raftStorage = raft.NewMemoryStorage()
 	if snapshot != nil {
+		// 用snap恢复
 		rc.raftStorage.ApplySnapshot(*snapshot)
 	}
 	rc.raftStorage.SetHardState(st)
 
 	// append to storage so raft starts at the right place in log
+	// 用wal回放
 	rc.raftStorage.Append(ents)
 
 	return w
@@ -279,12 +306,15 @@ func (rc *raftNode) writeError(err error) {
 	rc.node.Stop()
 }
 
+// 启动raft
 func (rc *raftNode) startRaft() {
+	// 启动的时候没有wal目录就得新建
 	if !fileutil.Exist(rc.snapdir) {
 		if err := os.Mkdir(rc.snapdir, 0o750); err != nil {
 			log.Fatalf("raftexample: cannot create dir for snapshot (%v)", err)
 		}
 	}
+	// 初始化快照管理器
 	rc.snapshotter = snap.New(zap.NewExample(), rc.snapdir)
 
 	oldwal := wal.Exist(rc.waldir)
