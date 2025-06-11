@@ -274,6 +274,7 @@ func (rc *raftNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 // 启动时候尝试恢复内存数据库 包含了两层语义
 // 1 用snap快照
 // 2 用wal查漏补缺
+// 在初始化storage的时候有特殊处理 初始化的时候在Storage#ents中放了一条entry 这个entry的term和index用的int默认值0
 func (rc *raftNode) replayWAL() *wal.WAL {
 	log.Printf("replaying WAL of member %d", rc.id)
 	// 找到用来恢复数据的snap快照 找到的为个snap能恢复的数据是[0...snap#Index] 剩下的数据还得靠wal文件继续回放
@@ -284,6 +285,8 @@ func (rc *raftNode) replayWAL() *wal.WAL {
 	if err != nil {
 		log.Fatalf("raftexample: failed to read WAL (%v)", err)
 	}
+	// 这个地方初始化的时候就会在Storage#ents中放上一条日志 这条日志用的是默认值 term=0 index=0
+	// 这样做的目的是 新系统启动时 没有历史数据 放上这一条数据做为哨兵 后面就可以不用考虑为空的场景边界
 	rc.raftStorage = raft.NewMemoryStorage()
 	if snapshot != nil {
 		// 用snap恢复
@@ -318,6 +321,7 @@ func (rc *raftNode) startRaft() {
 	rc.snapshotter = snap.New(zap.NewExample(), rc.snapdir)
 
 	oldwal := wal.Exist(rc.waldir)
+	// 尝试用历史的snap和wal恢复数据
 	rc.wal = rc.replayWAL()
 
 	// signal replay has finished
@@ -336,10 +340,12 @@ func (rc *raftNode) startRaft() {
 		MaxInflightMsgs:           256,
 		MaxUncommittedEntriesSize: 1 << 30,
 	}
-
+	// 这个地方为什么要这样判断 因为作为一个raft集群 它的流程驱动应该全靠事件 但是EDA的前提是有事件 在raft中事件本质就是log entry
+	// 所以集群最开始启动时候怎么办 空空如也没有log entry etcd的做法是哨兵 人为将节点初始化成Follower 添加log entry 然后等待超时事件触发选主
 	if oldwal || rc.join {
 		rc.node = raft.RestartNode(c)
 	} else {
+		// 人为添加log entry的哨兵
 		rc.node = raft.StartNode(c, rpeers)
 	}
 
