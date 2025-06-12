@@ -331,6 +331,7 @@ func (rc *raftNode) startRaft() {
 	for i := range rpeers {
 		rpeers[i] = raft.Peer{ID: uint64(i + 1)}
 	}
+	// 初始化raft#Config的时候没有显式指定Prevote成员 因此Prevote是默认值false
 	c := &raft.Config{
 		ID:                        uint64(rc.id),
 		ElectionTick:              10,
