@@ -15,7 +15,7 @@ replace (
 	go.etcd.io/etcd/tests/v3 => ./tests
 
 	// raft模块换成自己fork的地址 分支用自己的
-	go.etcd.io/raft/v3 => github.com/Bannirui/raft/v3 v3.0.0-20250618084139-2feecf73d483
+	go.etcd.io/raft/v3 => github.com/Bannirui/raft/v3 v3.0.0-20250618092935-4dc7908ea8fc
 )
 
 require (

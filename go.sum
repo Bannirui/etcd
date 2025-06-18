@@ -1,6 +1,6 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
-github.com/Bannirui/raft/v3 v3.0.0-20250618084139-2feecf73d483 h1:UO+270wWCqkJh2Q2W4rFDtE87+OeSsaucf05I39cNNc=
-github.com/Bannirui/raft/v3 v3.0.0-20250618084139-2feecf73d483/go.mod h1:da314M0PcgCPL0YZTxJ5IOdWFaddHEphphwCIp1uIbU=
+github.com/Bannirui/raft/v3 v3.0.0-20250618092935-4dc7908ea8fc h1:arisEAFaHBe4F+ukffKVVor+hWHEdiAv+DQujUOntq4=
+github.com/Bannirui/raft/v3 v3.0.0-20250618092935-4dc7908ea8fc/go.mod h1:mE8Anl9alzNTD5ivpKL6UtzW5YM7BSPyvdtmABOv28c=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/VividCortex/ewma v1.2.0 h1:f58SaIzcDXrSy3kWaHNvuJgJ3Nmz59Zji6XoJR/q1ow=
 github.com/VividCortex/ewma v1.2.0/go.mod h1:nz4BbCtbLyFDeC9SUHbtcT5644juEuWfUAUnGx7j5l4=
