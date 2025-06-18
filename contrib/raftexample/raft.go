@@ -341,12 +341,11 @@ func (rc *raftNode) startRaft() {
 		MaxInflightMsgs:           256,
 		MaxUncommittedEntriesSize: 1 << 30,
 	}
-	// 这个地方为什么要这样判断 因为作为一个raft集群 它的流程驱动应该全靠事件 但是EDA的前提是有事件 在raft中事件本质就是log entry
-	// 所以集群最开始启动时候怎么办 空空如也没有log entry etcd的做法是哨兵 人为将节点初始化成Follower 添加log entry 然后等待超时事件触发选主
+	// 这个地方为什么要设计成这样 因为选主拉票流程需要依赖有Voters 所以这个地方手动让raft感知到Voters是谁
 	if oldwal || rc.join {
 		rc.node = raft.RestartNode(c)
 	} else {
-		// 人为添加log entry的哨兵
+		// 人为模拟AppendEntries和ApplyConfChange 目的是让raft#trk#Config#Voters里面有整个集群的节点信息 后面Leader心跳定时到期后Follower升级成Candidate发送竞选Leader消息才知道发给谁
 		rc.node = raft.StartNode(c, rpeers)
 	}
 
