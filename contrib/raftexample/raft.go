@@ -334,6 +334,7 @@ func (rc *raftNode) startRaft() {
 	// 初始化raft#Config的时候没有显式指定Prevote成员 因此Prevote是默认值false
 	c := &raft.Config{
 		ID:                        uint64(rc.id),
+		// Leader心跳超时是10个上层的tick 比如etcd设置一个100ms的定时器 那么对于raft而言心跳超时就是1s
 		ElectionTick:              10,
 		HeartbeatTick:             1,
 		Storage:                   rc.raftStorage,
@@ -457,6 +458,8 @@ func (rc *raftNode) serveChannels() {
 
 	defer rc.wal.Close()
 
+	// raft上层定义的定时器 100ms到期一次 这个定时器对于raft而言就是一个时钟刻度 raft的定时语义就是多少个这个刻度算一个周期
+	// 比如raftexample定义的一个Leader心跳超时是10个tick 每10个tick就算一个心跳超时 Follower开始选主
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -496,6 +499,7 @@ func (rc *raftNode) serveChannels() {
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-rc.node.Ready():
+			// raftexample收到raft给的readyc通知 readyc里面有raft打包好的ready清单
 			// Must save the snapshot file and WAL snapshot entry before saving any other entries
 			// or hardstate to ensure that recovery after a snapshot restore is possible.
 			if !raft.IsEmptySnap(rd.Snapshot) {
@@ -507,6 +511,7 @@ func (rc *raftNode) serveChannels() {
 				rc.publishSnapshot(rd.Snapshot)
 			}
 			rc.raftStorage.Append(rd.Entries)
+			// 走RPC向其他节点发送
 			rc.transport.Send(rc.processMessages(rd.Messages))
 			applyDoneC, ok := rc.publishEntries(rc.entriesToApply(rd.CommittedEntries))
 			if !ok {
@@ -514,6 +519,7 @@ func (rc *raftNode) serveChannels() {
 				return
 			}
 			rc.maybeTriggerSnapshot(applyDoneC)
+			// raft给的ready清单已经处理完 raftexample再通过advancec通知raft已经处理完了
 			rc.node.Advance()
 
 		case err := <-rc.transport.ErrorC:
